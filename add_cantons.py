@@ -5,7 +5,7 @@ Usage: python3 add_cantons.py
 Looks each distinct point up in swisstopo's swissBOUNDARIES3D (identify API, no key needed) and
 rewrites data_photos.js in place; every other value is left as it is. Points outside Switzerland
 (or when the lookup fails) get `canton: null`. Safe to run again: photos that already have a
-canton are skipped. Stdlib only.
+canton are skipped, the others (abroad or failed lookup) are tried again. Stdlib only.
 """
 import json, urllib.request, urllib.parse
 
@@ -30,7 +30,7 @@ data = json.loads(body.rstrip().rstrip(';'))
 
 cache = {}
 for f in data['features']:
-    if not f['geometry'] or 'canton' in f['properties']:
+    if not f['geometry'] or f['properties'].get('canton'):
         continue
     key = tuple(f['geometry']['coordinates'])
     if key not in cache:

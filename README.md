@@ -1,7 +1,17 @@
 # Historical photos – swisstopo (GLAMHack 2026)
 
-A map of 1,771 historical photographs from swisstopo, built from an Excel export of the
-collection. The photos themselves are loaded from Memobase.
+A map of historical photographs from swisstopo (1,771 in the collection, 280 with a place on
+the map), built from an Excel export of the collection. The photos themselves are loaded from
+Memobase.
+
+Three views, chosen with the tabs at the top:
+
+- **Map**: one dot per photo; close photos merge into numbered circles, a lone photo shows a preview.
+- **Swipe**: two synced maps side by side, today's map against a swisstopo historical map of any year.
+- **Gallery**: photos as floating cards on a plain canvas, arranged freely, by decade or by canton.
+  Click a decade or canton to open it as a full-size grid (back with *← All*, Esc or a click on the canvas).
+
+All views use the year slider and the "undated photos" switch.
 
 ## View the map
 
@@ -14,9 +24,10 @@ The base map and the photos need an internet connection.
 ## How the data flows
 
 ```
-data/Mappe2_v6_orte_orte.xlsx
+data/Mappe2_v7.xlsx
    │  consolidate_descriptions.py   adds the theme and keyword columns to the workbook
    │  convertir_donnees.py          converts the workbook to GeoJSON
+   │  add_cantons.py                adds the canton of every point to the GeoJSON
    ▼
 data_photos.js  →  index.html + photomap.js
 ```
@@ -25,12 +36,23 @@ To rebuild the map data after the workbook changes, run from the repository root
 (`data_photos.js` is written to the current directory):
 
 ```sh
-python consolidate_descriptions.py data/Mappe2_v6_orte_orte.xlsx
-python convertir_donnees.py data/Mappe2_v6_orte_orte.xlsx
+python consolidate_descriptions.py data/Mappe2_v7.xlsx
+python convertir_donnees.py data/Mappe2_v7.xlsx
+python add_cantons.py
 ```
 
-Both scripts need Python with `pandas` and `openpyxl`. Both can be run again safely: the
-first overwrites its two columns, the second overwrites `data_photos.js`.
+The first two scripts need Python with `pandas` and `openpyxl`; `add_cantons.py` uses only the
+standard library. All three can be run again safely: the first overwrites its two columns in the
+workbook, the second overwrites `data_photos.js` (and so drops the cantons), the third adds
+them back. **Always run `add_cantons.py` after `convertir_donnees.py`**: the Gallery's "By
+canton" view needs the `canton` property.
+
+`add_cantons.py` needs an internet connection. It asks swisstopo's identify service
+(`api3.geo.admin.ch`, layer swissBOUNDARIES3D cantons, no key needed) which canton contains each
+point, one request per distinct point (about 190, roughly a minute). Photos that already have a
+canton are skipped. A point outside Switzerland (border summits such as the Matterhorn) gets
+`canton: null` and is looked up again on the next run, as is a point whose request failed
+(the failure is printed).
 
 ## Files
 
@@ -39,9 +61,11 @@ first overwrites its two columns, the second overwrites `data_photos.js`.
 | `index.html`, `photomap.js`, `photomap.css` | The map (MapLibre GL JS). |
 | `data_photos.js` | Generated map data. Do not edit by hand. |
 | `convertir_donnees.py` | Workbook → `data_photos.js`. |
+| `add_cantons.py` | Adds `canton` to every photo in `data_photos.js` (swisstopo identify service; needs internet). |
 | `consolidate_descriptions.py` | Adds `Beschreibung-consolidated` and `Beschreibung-consolidated-keywords` to a workbook. |
-| `data/Mappe2_v6_orte_orte.xlsx` | Current workbook; the map is built from this one. |
-| `data/Data_mappe.xlsx`, `data/Data_mappe.csv` | Earlier export. Differs from the current workbook in the place columns of 14 rows. |
+| `data/Mappe2_v7.xlsx` | Current workbook; the map is built from this one. |
+| `data/Mappe2_v6_orte_orte.xlsx` | Previous workbook (112 fewer photos with a place). |
+| `data/Data_mappe.xlsx`, `data/Data_mappe.csv` | Earlier export. Differs from v6 in the place columns of 14 rows; not compared with v7. |
 | `data/places_descriptors_orte_orte_orte.csv` | Place table with WGS84 coordinates and Wikidata ids. Not read by any script yet. |
 | `notebooks/explore_data_mappe.ipynb` | Exploration of the export: dates, titles, descriptions, places. Reads `data/Data_mappe.csv`. |
 | `index_fix_iiif.js` | Earlier map code. Not loaded by `index.html`. |
@@ -49,7 +73,7 @@ first overwrites its two columns, the second overwrites `data_photos.js`.
 ## Properties in `data_photos.js`
 
 One GeoJSON feature per photo. `geometry` is `null` for photos without coordinates
-(1,603 of 1,771).
+(1,491 of 1,771).
 
 | Property | Workbook column | Notes |
 | --- | --- | --- |
@@ -67,6 +91,7 @@ One GeoJSON feature per photo. `geometry` is `null` for photos without coordinat
 | `lieu_represente` | `Abgebildeter_Ort_*` | Place shown in the photo: name, LV95 and WGS84 coordinates. |
 | `lieu_prise_de_vue` | `Aufnahmeort_*` | Place the photo was taken from; preferred for the point when known. |
 | `statut` | `Ortsfinder_Status` | |
+| `canton` | | Two-letter canton code (`BE`, `VS`, ...) of the point, from `add_cantons.py`; `null` outside Switzerland (7 border summits). Only present after `add_cantons.py` has run. |
 
 ## Description themes
 
@@ -103,6 +128,8 @@ lists change, change them in both places.
   entry, then a manually placed point). The script uses the first non-empty entry, so the
   photo has a point on the map.
 - **Map does not use the themes yet**: `photomap.js` does not read `themes` or `mots_cles`.
+- **Gallery**: only photos whose Memobase picture loads get a card (261 of the 280 at the last check); the others stay on the map. Cards use the 240 px IIIF picture.
+- **Cantons at the border**: a point exactly on or just outside the boundary may get no canton and falls into the "Border / abroad" group.
 
 ## Open questions
 
@@ -111,4 +138,4 @@ lists change, change them in both places.
   (up to 2 m off), and Tesserete had no point. The script now reproduces that file exactly
   except for Tesserete, so nothing is lost, but the tool that made it is not in the repository.
 - Should `data/Data_mappe.xlsx` and `data/Data_mappe.csv` be kept now that the map is built
-  from `Mappe2_v6_orte_orte.xlsx`? The notebook still reads the CSV.
+  from `Mappe2_v7.xlsx`? The notebook still reads the CSV.
