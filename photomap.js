@@ -24,7 +24,9 @@
             // direct IIIF image, 600 px wide
             image: function (inv) { return 'https://media.memobase.ch/memo/' + memobaseId(inv) + '-1/iiif/full/600,/0/default.jpg'; },
             // small preview shown on the map when zoomed in, 120 px wide
-            thumb: function (inv) { return 'https://media.memobase.ch/memo/' + memobaseId(inv) + '-1/iiif/full/120,/0/default.jpg'; }
+            thumb: function (inv) { return 'https://media.memobase.ch/memo/' + memobaseId(inv) + '-1/iiif/full/120,/0/default.jpg'; },
+            // picture on a gallery card, 240 px wide (sharp on high-density screens)
+            card: function (inv) { return 'https://media.memobase.ch/memo/' + memobaseId(inv) + '-1/iiif/full/240,/0/default.jpg'; }
         },
         // font for the numbers in the cluster circles; the left (historical) map needs the glyph URL too
         font: ['Frutiger Neue Condensed Bold'],
@@ -42,6 +44,14 @@
                 return 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.zeitreihen/default/' + year + '1231/3857/{z}/{x}/{y}.png';
             }
         }
+    };
+
+    // canton codes (`canton` property, added by add_cantons.py) -> names shown in the gallery
+    var CANTON_NAMES = {
+        AG: 'Aargau', AI: 'Appenzell Innerrhoden', AR: 'Appenzell Ausserrhoden', BE: 'Bern', BL: 'Basel-Landschaft',
+        BS: 'Basel-Stadt', FR: 'Fribourg', GE: 'Geneva', GL: 'Glarus', GR: 'Grisons', JU: 'Jura', LU: 'Lucerne',
+        NE: 'Neuchâtel', NW: 'Nidwalden', OW: 'Obwalden', SG: 'St. Gallen', SH: 'Schaffhausen', SO: 'Solothurn',
+        SZ: 'Schwyz', TG: 'Thurgau', TI: 'Ticino', UR: 'Uri', VD: 'Vaud', VS: 'Valais', ZG: 'Zug', ZH: 'Zurich'
     };
 
     // Memobase id = "blt-001-" + inventory number padded to 9 digits
@@ -91,9 +101,19 @@
               '<div class="pm-divider" role="slider" tabindex="0" aria-label="Compare maps: drag to move the divider" aria-valuemin="0" aria-valuemax="100">' +
                 '<span class="pm-handle">◀ ▶</span>' +
               '</div>' +
+              '<div class="pm-gallery">' +
+                '<div class="pm-gcanvas" aria-label="Photos grouped by canton or decade"></div>' +
+                '<button type="button" class="pm-gback">← All</button>' +
+                '<div class="pm-arrange" role="group" aria-label="Arrange photos">' +
+                  '<button type="button" data-arrange="free" aria-pressed="true">Free</button>' +
+                  '<button type="button" data-arrange="decade" aria-pressed="false">By decade</button>' +
+                  '<button type="button" data-arrange="canton" aria-pressed="false">By canton</button>' +
+                '</div>' +
+              '</div>' +
               '<div class="pm-modes" role="tablist">' +
                 '<button type="button" role="tab" class="pm-active" data-mode="map" aria-selected="true">Map</button>' +
                 '<button type="button" role="tab" data-mode="compare" aria-selected="false">Swipe</button>' +
+                '<button type="button" role="tab" data-mode="gallery" aria-selected="false">Gallery</button>' +
               '</div>' +
               '<div class="pm-top">' +
                 '<div class="pm-title">' + esc(o.title) + '</div>' +
@@ -309,10 +329,12 @@
         }
 
         function setMode(m) {
+            // the swipe preset changes the year slider: put it back only when leaving swipe mode
             if (m === 'compare') { mapRange = [sliderStart.value, sliderEnd.value]; presetDecade(); }
-            else if (mapRange) { sliderStart.value = mapRange[0]; sliderEnd.value = mapRange[1]; }
+            else if (mode === 'compare' && mapRange) { sliderStart.value = mapRange[0]; sliderEnd.value = mapRange[1]; mapRange = null; }
             mode = m;
             root.classList.toggle('pm-compare', m === 'compare');
+            root.classList.toggle('pm-gallery-on', m === 'gallery');
             container.querySelectorAll('.pm-modes button').forEach(function (b) {
                 var on = b.dataset.mode === m;
                 b.classList.toggle('pm-active', on);
@@ -324,7 +346,7 @@
                 else histMap.resize();
             }
             map.resize();
-            filterDates();
+            filterDates();   // also lays out the gallery
             alignSteppers();
         }
 
@@ -400,6 +422,247 @@
             e.preventDefault();
         });
 
+
+        // ---------- gallery mode ----------
+        // Photo cards float on a plain canvas and can be arranged freely, by decade, or by canton
+        // (cantons sit where they are on the map). Cards follow the same date filter as the map.
+        var gal = { arrange: 'free', cards: null, failed: new Set(), focus: null };   // focus = key of the group shown full size
+        var gcanvas = $('.pm-gcanvas');
+        var SPREAD = 0.2;      // how far cards fan out from the middle of a group (smaller = tighter stack)
+        var GOLDEN = 2.39996;   // golden angle: cards spiral out from the centre of a group
+
+        function galleryBuild() {
+            gal.cards = new Map();
+            photos.forEach(function (f) {
+                var inv = f.properties.inv;
+                var el = document.createElement('button');
+                el.type = 'button';
+                el.className = 'pm-card';
+                el.setAttribute('aria-label', f.properties.titre ?? 'Photo ' + inv);
+                var img = new Image();
+                img.alt = '';
+                img.draggable = false;
+                // no picture on Memobase for this one: drop the card instead of showing an empty frame
+                img.onerror = function () { gal.failed.add(inv); el.classList.add('pm-card-off'); galleryLayout(); };
+                img.src = o.links.card(inv);
+                el.appendChild(img);
+                el.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    // in a grouped view the first click on a pile opens that group; the next ones open photos
+                    if (gal.arrange !== 'free' && gal.focus == null) return focusGroup(groupOf(f.properties));
+                    stack = null; openPhoto(inv, false);
+                });
+                gcanvas.appendChild(el);
+                gal.cards.set(inv, el);
+            });
+        }
+
+        // group key + label for one photo, by arrangement
+        function groupOf(p) {
+            if (gal.arrange === 'decade') return p.annee == null ? 'Undated' : Math.floor(p.annee / 10) * 10;
+            if (gal.arrange === 'canton') return p.canton ?? 'Elsewhere';
+            return 'all';
+        }
+        function groupLabel(key) {
+            if (gal.arrange === 'decade') return key === 'Undated' ? 'Undated' : key + 's';
+            return key === 'Elsewhere' ? 'Border / abroad' : (CANTON_NAMES[key] || key);
+        }
+
+        // centre of every group, as pixels inside the box `a` = {x, y, w, h}; `cell` = room per group (decade grid only)
+        var cell = null;
+        function groupCenters(keys, members, a) {
+            var centers = new Map();
+            cell = null;
+            if (gal.arrange === 'decade') {
+                var cols = a.w < 600 ? 3 : Math.min(keys.length, 5), rows = Math.ceil(keys.length / cols);
+                keys.forEach(function (k, i) {
+                    centers.set(k, { x: a.x + a.w * ((i % cols) + 0.5) / cols, y: a.y + a.h * (Math.floor(i / cols) + 0.5) / rows });
+                });
+                cell = { w: a.w / cols, h: a.h / rows };
+                return centers;
+            }
+            // canton: mean position of its photos, scaled to the map bounds (same aspect as the map)
+            var b = o.bounds, cosLat = Math.cos((b[0][1] + b[1][1]) / 2 * Math.PI / 180);
+            var spanX = (b[1][0] - b[0][0]) * cosLat, spanY = b[1][1] - b[0][1];
+            var k = Math.min(a.w / spanX, a.h / spanY);
+            keys.forEach(function (key) {
+                var m = members.get(key), lon = 0, lat = 0;
+                m.forEach(function (f) { lon += f.geometry.coordinates[0]; lat += f.geometry.coordinates[1]; });
+                lon /= m.length; lat /= m.length;
+                centers.set(key, key === 'Elsewhere'
+                    ? { x: a.x + a.w * 0.08, y: a.y + a.h * 0.92 }
+                    : { x: a.x + a.w / 2 + ((lon - (b[0][0] + b[1][0]) / 2) * cosLat) * k,
+                        y: a.y + a.h / 2 - (lat - (b[0][1] + b[1][1]) / 2) * k });
+            });
+            return centers;
+        }
+
+        function focusGroup(key) {
+            gal.focus = key;
+            closePanel();
+            galleryLayout();
+        }
+
+        // biggest card size that fits n cards (4:3 plus frame) into a w x h box, and the column count that gives it
+        function fitGrid(n, w, h) {
+            var best = { size: 30, cols: 1 };
+            for (var cols = 1; cols <= n; cols++) {
+                var rows = Math.ceil(n / cols);
+                var s = Math.min(w / cols / 1.1, h / rows / (0.75 * 1.12));
+                if (s > best.size) best = { size: s, cols: cols };
+            }
+            best.size = Math.min(best.size, 220);
+            return best;
+        }
+
+        var Y_SQUASH = 0.72;   // spirals are flatter than they are wide
+        // radius of a group in card sizes: spiral extent + half a card
+        function groupRadius(count) { return Math.sqrt(count + 0.5) * SPREAD + 0.55; }
+
+        // canton view: push group centres apart until no two groups overlap (they start where the cantons are)
+        function separate(centers, keys, members, size, area) {
+            var home = {};
+            keys.forEach(function (k) { home[k] = { x: centers.get(k).x, y: centers.get(k).y / Y_SQUASH }; });
+            var c = {};   // y is stretched by 1/Y_SQUASH, so every group is a plain circle
+            keys.forEach(function (k) { c[k] = { x: home[k].x, y: home[k].y, r: groupRadius(members.get(k).length) * size }; });
+            for (var it = 0; it < 300; it++) {
+                for (var a = 0; a < keys.length; a++) for (var b = a + 1; b < keys.length; b++) {
+                    var p = c[keys[a]], q = c[keys[b]];
+                    var dx = q.x - p.x, dy = q.y - p.y, d = Math.sqrt(dx * dx + dy * dy) || 0.01, gap = p.r + q.r - d;
+                    if (gap <= 0) continue;
+                    var ux = dx / d, uy = dy / d;
+                    // the bigger group moves less
+                    var wp = q.r / (p.r + q.r), wq = p.r / (p.r + q.r);
+                    p.x -= ux * gap * wp; p.y -= uy * gap * wp;
+                    q.x += ux * gap * wq; q.y += uy * gap * wq;
+                }
+                keys.forEach(function (k) {
+                    var g = c[k];
+                    g.x += (home[k].x - g.x) * 0.02; g.y += (home[k].y - g.y) * 0.02;   // drift back towards the real position
+                    g.x = Math.max(area.x, Math.min(area.x + area.w, g.x));
+                    g.y = Math.max(area.y / Y_SQUASH, Math.min((area.y + area.h) / Y_SQUASH, g.y));
+                });
+            }
+            keys.forEach(function (k) { centers.set(k, { x: c[k].x, y: c[k].y * Y_SQUASH }); });
+        }
+
+        function galleryLayout() {
+            if (mode !== 'gallery') return;
+            if (!gal.cards) galleryBuild();
+            var w = gcanvas.clientWidth, h = gcanvas.clientHeight;
+            if (!w) return;
+            var narrow = w < 600;
+            var shown = visible ? new Set(visible) : null;
+            var items = photos.filter(function (f) {
+                var inv = f.properties.inv;
+                return !gal.failed.has(inv) && (!shown || shown.has(inv));
+            });
+            var top = narrow ? 210 : 130;
+            var members = new Map();
+            items.forEach(function (f) {
+                var key = groupOf(f.properties);
+                if (!members.has(key)) members.set(key, []);
+                members.get(key).push(f);
+            });
+            // focus: show only one group, big, in the middle
+            if (gal.arrange === 'free' || !members.has(gal.focus)) gal.focus = null;
+            var focused = gal.focus != null;
+            root.classList.toggle('pm-gfocus', focused);
+            if (focused) members = new Map([[gal.focus, members.get(gal.focus).slice().sort(function (a, b) {
+                return (a.properties.annee ?? 9999) - (b.properties.annee ?? 9999);
+            })]]);
+            var size = (narrow ? Math.max(44, w * 0.135) : Math.min(112, w * 0.078)) * (gal.arrange === 'canton' ? 0.8 : 1);
+            if (gal.arrange === 'canton' && !focused) { // shrink the cards until all the groups fit side by side
+                var units = 0;
+                members.forEach(function (list) { var u = groupRadius(list.length); units += Math.PI * u * u * Y_SQUASH; });
+                size = Math.max(30, Math.min(size, Math.sqrt(0.5 * (w - 48) * (h - top - 100) / units)));
+            }
+            var area = { x: 24 + size / 2, y: top, w: w - 48 - size, h: h - top - 100 };  // keep clear of the title and the timeline
+
+            var keys = Array.from(members.keys());
+            if (gal.arrange === 'decade') keys.sort(function (a, b) { return (a === 'Undated') - (b === 'Undated') || a - b; });
+            var centers = gal.arrange === 'free' || focused ? null : groupCenters(keys, members, area);
+            if (gal.arrange === 'canton' && !focused) separate(centers, keys, members, size, area);
+
+            // how far cards spread from the group centre, per card: a big group in a small cell piles up instead of spilling out
+            function spread(count) {
+                var s = SPREAD;
+                if (cell) s = Math.min(s, Math.min(cell.w / 2, cell.h / 2 / 0.72) / (Math.sqrt(count + 0.5) * size));
+                return s;
+            }
+
+            var pos = new Map();
+            var labelAt = new Map();   // group -> { x: mean x of its cards, y: top edge of its highest card }
+            if (focused) {
+                var fl = members.get(gal.focus), box = { w: w - 48, h: h - top - 100 - 40 };
+                var g = fitGrid(fl.length, box.w, box.h);
+                size = g.size;
+                var cw = size * 1.1, rh = size * 0.75 * 1.12, rows = Math.ceil(fl.length / g.cols);
+                var y0 = top + 40 + (box.h - rows * rh) / 2 + rh / 2, sx = 0;
+                fl.forEach(function (f, n) {
+                    var row = Math.floor(n / g.cols), inRow = Math.min(g.cols, fl.length - row * g.cols);
+                    var x = w / 2 + ((n % g.cols) - (inRow - 1) / 2) * cw;
+                    pos.set(f.properties.inv, { x: x, y: y0 + row * rh, i: photos.indexOf(f) });
+                    sx += x;
+                });
+                labelAt.set(gal.focus, { x: w / 2, y: y0 - rh / 2 + 4 });
+            } else members.forEach(function (list, key) {
+                var sp = spread(list.length), sumX = 0, minY = Infinity;
+                list.forEach(function (f, n) {
+                    var i = photos.indexOf(f), x, y;
+                    if (!centers) { // free: a fixed scatter, so a photo keeps its place when the filter changes
+                        x = area.x + (i * 0.61803398875 % 1) * area.w;
+                        y = area.y + (i * 0.754877666 % 1) * area.h;
+                    } else {
+                        var c = centers.get(key), angle = n * GOLDEN + i * 0.07, r = Math.sqrt(n + 0.5) * size * sp;
+                        x = c.x + Math.cos(angle) * r;
+                        y = c.y + Math.sin(angle) * r * 0.72;
+                    }
+                    x = Math.max(size * 0.7, Math.min(w - size * 0.7, x));
+                    y = Math.max(size * 0.65, Math.min(h - size * 0.65, y));
+                    pos.set(f.properties.inv, { x: x, y: y, i: i });
+                    sumX += x; minY = Math.min(minY, y);
+                });
+                labelAt.set(key, { x: sumX / list.length, y: minY - size * 0.375 });
+            });
+
+            gal.cards.forEach(function (el, inv) {
+                var p = pos.get(inv);
+                el.classList.toggle('pm-card-off', !p);
+                if (!p) return;   // filtered out: fades away where it was
+                el.style.width = size + 'px';
+                el.style.zIndex = p.i + 1;
+                el.style.transform = 'translate(' + (p.x - size / 2) + 'px,' + (p.y - size * 0.375) + 'px) rotate(' + (Math.sin(p.i * 17) * 11) + 'deg)';
+            });
+
+            gcanvas.querySelectorAll('.pm-glabel').forEach(function (el) { el.remove(); });
+            if (gal.arrange === 'free') return;
+            keys.forEach(function (key) {
+                var at = labelAt.get(key), n = members.get(key).length;
+                var label = document.createElement(focused ? 'span' : 'button');
+                label.className = 'pm-glabel';
+                if (!focused) { label.type = 'button'; label.addEventListener('click', function (e) { e.stopPropagation(); focusGroup(key); }); }
+                label.textContent = groupLabel(key) + ' · ' + n;
+                label.style.left = at.x + 'px';
+                label.style.top = Math.max(20, at.y - 16) + 'px';
+                gcanvas.appendChild(label);
+            });
+        }
+
+        container.querySelector('.pm-arrange').addEventListener('click', function (e) {
+            var b = e.target.closest('button');
+            if (!b) return;
+            gal.arrange = b.dataset.arrange;
+            gal.focus = null;
+            container.querySelectorAll('.pm-arrange button').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
+            galleryLayout();
+        });
+        // empty canvas: close the panel first, then leave the focused group
+        gcanvas.addEventListener('click', function () { if (selected != null || stack) closePanel(); else if (gal.focus != null) focusGroup(null); });
+        $('.pm-gback').addEventListener('click', function () { focusGroup(null); });
+        container.addEventListener('keydown', function (e) { if (e.key === 'Escape' && mode === 'gallery' && gal.focus != null) focusGroup(null); });
+        if (global.ResizeObserver) new ResizeObserver(galleryLayout).observe(gcanvas);
+
         // ---------- date filter ----------
         [sliderStart, sliderEnd].forEach(function (s) {
             s.min = YEAR_MIN; s.max = YEAR_MAX;
@@ -418,7 +681,6 @@
             var from = +sliderStart.value, to = +sliderEnd.value;
             $('.pm-year-start').textContent = from;
             $('.pm-year-end').textContent = to;
-            if (!ready) return;
 
             // single source of truth: the list of visible `inv` feeds both the map filter and the counter
             visible = photos.filter(function (f) {
@@ -427,6 +689,7 @@
             }).map(function (f) { return f.properties.inv; });
 
             liveMaps().forEach(setPhotoData);
+            galleryLayout();
 
             // the open photo (or the stack list) fell out of the filter: close the panel
             if ((selected != null && visible.indexOf(selected) < 0) || (selected == null && stack)) closePanel();
@@ -435,6 +698,7 @@
         // ---------- selection ----------
         function highlight() { // outline on the selected photo's preview
             thumbSets.forEach(function (t) { t.mark(); });
+            if (gal.cards) gal.cards.forEach(function (el, inv) { el.classList.toggle('pm-card-sel', inv === selected); });
         }
 
         function closePanel() {

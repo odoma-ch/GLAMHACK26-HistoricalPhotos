@@ -8,19 +8,20 @@
   height: 100%;
   min-height: 360px;
   overflow: hidden;
+  overflow: clip;       /* clip, not hidden: focus or floating cards must never scroll the component */
   font-family: inherit;
   font-size: 14px;
   color: #111;
   container-type: inline-size; /* "small screen" rules follow the component's size, not the window's */
 }
 .pm-root *, .pm-root *::before, .pm-root *::after { box-sizing: border-box; }
-.pm-map { position: absolute; inset: 0; }
+.pm-map { position: absolute; inset: 0; z-index: 0; }   /* own stacking context: map controls stay under the gallery */
 
 /* ---------- titre + filtres (haut gauche) ---------- */
 .pm-top {
   position: absolute;
   top: 16px; left: 20px;
-  max-width: calc(50% - 110px);    /* stay left of the Map / Swipe tabs (centred) */
+  max-width: calc(50% - 150px);    /* stay left of the Map / Swipe / Gallery tabs (centred) */
   pointer-events: none;            /* the map stays clickable around the text */
 }
 .pm-top > * { pointer-events: auto; }
@@ -245,6 +246,70 @@
   -webkit-appearance: none; appearance: none; cursor: pointer;
 }
 
+/* ---------- gallery mode: floating photo cards on a plain canvas (covers the map) ---------- */
+.pm-gallery { display: none; position: absolute; inset: 0; z-index: 0; overflow: hidden; overflow: clip; background: #f4f3ef; }  /* clip: cannot be scrolled by focus */  /* z-index: card stacking stays inside */
+.pm-gallery-on .pm-gallery { display: block; }
+.pm-gallery-on .pm-legend, .pm-gallery-on .pm-credit { display: none; }
+.pm-gcanvas { position: absolute; inset: 0; }
+.pm-card {
+  position: absolute; left: 0; top: 0;
+  padding: 0; border: 0; background: none; cursor: pointer;
+  transition: transform 1.2s cubic-bezier(0.22, 0.75, 0.2, 1), opacity 0.4s;
+  will-change: transform;
+}
+.pm-card img {
+  display: block; width: 100%;
+  aspect-ratio: 4 / 3; object-fit: cover;
+  border: 4px solid #fff; border-radius: 3px;
+  background: #ddd;
+  box-shadow: 0 5px 15px rgba(35, 58, 53, 0.15);
+  animation: pm-float 6s ease-in-out infinite alternate;
+}
+.pm-card:hover { z-index: 1000 !important; }
+.pm-card:hover img { animation-play-state: paused; }
+.pm-card-sel img { outline: 3px solid #000; outline-offset: 1px; }
+.pm-card-off { opacity: 0; pointer-events: none; }
+.pm-glabel {
+  position: absolute; transform: translate(-50%, -50%);
+  border: 0; color: inherit; font-family: inherit;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(244, 243, 239, 0.87);
+  font-size: 13px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap;
+  z-index: 1001;
+}
+button.pm-glabel { cursor: pointer; }
+button.pm-glabel:hover { background: #000; color: #fff; }
+span.pm-glabel { pointer-events: none; }
+@keyframes pm-float {
+  from { translate: 0 -4px; rotate: -1deg; }
+  to { translate: 2px 5px; rotate: 1deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-card { transition: none; }
+  .pm-card img { animation: none; }
+}
+/* "back to all groups" button, only while one group is open */
+.pm-gback {
+  display: none; position: absolute; top: 64px; right: 20px;
+  padding: 7px 16px; border: 2px solid #000; border-radius: 999px;
+  background: #fff; color: #111; font: inherit; font-weight: 600; cursor: pointer;
+}
+.pm-gfocus .pm-gback { display: block; }
+/* arrangement buttons (top right, where the swipe year picker sits) */
+.pm-arrange {
+  position: absolute; top: 16px; right: 20px;
+  display: flex; padding: 3px;
+  border: 2px solid #000; border-radius: 999px;
+  background: #fff;
+}
+.pm-arrange button {
+  padding: 7px 14px;
+  border: 0; border-radius: 999px;
+  background: none; color: #111;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.pm-arrange button[aria-pressed="true"] { background: #000; color: #fff; }
+
 /* ---------- small component: the panel becomes a bottom sheet ---------- */
 @container (max-width: 700px) {
   .pm-top { left: 12px; top: 64px; max-width: calc(100% - 80px); }
@@ -255,6 +320,8 @@
     transform: translateY(130%);
   }
   .pm-step-right { right: 12px; }
+  .pm-gback { top: auto; bottom: 126px; left: 50%; right: auto; transform: translateX(-50%); }
+  .pm-arrange { top: auto; bottom: 78px; left: 50%; right: auto; transform: translateX(-50%); }  /* no room at the top */
   .pm-legend { display: none; }
   /* zoom buttons would sit on the timeline here: lift them above it */
   .pm-root .maplibregl-ctrl-bottom-right { bottom: 70px; }
