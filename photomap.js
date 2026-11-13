@@ -93,6 +93,12 @@
         var years = photos.map(function (f) { return f.properties.annee; }).filter(function (y) { return y != null; });
         var YEAR_MIN = Math.min.apply(null, years);
         var YEAR_MAX = Math.max.apply(null, years);
+        // themes (`themes` list, English labels): most common first, "uncategorised" last
+        var themeCount = {};
+        photos.forEach(function (f) { (f.properties.themes || []).forEach(function (t) { themeCount[t] = (themeCount[t] || 0) + 1; }); });
+        var THEMES = Object.keys(themeCount).sort(function (a, b) {
+            return (a === 'uncategorised') - (b === 'uncategorised') || themeCount[b] - themeCount[a];
+        });
 
         container.innerHTML =
             '<div class="pm-root">' +
@@ -108,6 +114,7 @@
                   '<button type="button" data-arrange="free" aria-pressed="true">Free</button>' +
                   '<button type="button" data-arrange="decade" aria-pressed="false">By decade</button>' +
                   '<button type="button" data-arrange="canton" aria-pressed="false">By canton</button>' +
+                  '<button type="button" data-arrange="theme" aria-pressed="false">By theme</button>' +
                 '</div>' +
               '</div>' +
               '<div class="pm-modes" role="tablist">' +
@@ -120,6 +127,7 @@
                 '<div class="pm-subtitle">' + esc(o.subtitle) + '</div>' +
                 '<div class="pm-filters">' +
                   '<label class="pm-pill"><input type="checkbox" class="pm-undated" checked> undated photos</label>' +
+                  (THEMES.length ? '<details class="pm-themes"><summary class="pm-pill"></summary><div class="pm-themelist"></div></details>' : '') +
                 '</div>' +
                 '<div class="pm-legend">' +
                   '<div><span class="pm-dot" style="background:' + esc(o.colors.prise_de_vue) + '"></span>Place where the photo was taken</div>' +
@@ -146,6 +154,29 @@
         var root = $('.pm-root');
         var sliderStart = $('.pm-slider-start'), sliderEnd = $('.pm-slider-end');
         var undatedBox = $('.pm-undated');
+        // theme filter: a drop-down list of checkboxes (all ticked = no filtering)
+        var themeBox = $('.pm-themes');
+        var themeBoxes = [];
+        if (themeBox) {
+            var list = $('.pm-themelist');
+            list.innerHTML = '<button type="button" class="pm-themetoggle">Select all / none</button>' + THEMES.map(function (t) {
+                return '<label class="pm-themeopt"><input type="checkbox" value="' + esc(t) + '" checked> ' + esc(t) +
+                    ' <span class="pm-themen">' + themeCount[t] + '</span></label>';
+            }).join('');
+            themeBoxes = Array.from(list.querySelectorAll('input'));
+            list.addEventListener('change', function () { filterDates(); });
+            list.querySelector('.pm-themetoggle').addEventListener('click', function () {
+                var all = themeBoxes.every(function (b) { return b.checked; });
+                themeBoxes.forEach(function (b) { b.checked = !all; });
+                filterDates();
+            });
+            // click anywhere else closes the list
+            document.addEventListener('click', function (e) { if (!themeBox.contains(e.target)) themeBox.open = false; });
+        }
+        function activeThemes() {
+            return new Set(themeBoxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; }));
+        }
+        function themesOf(p) { return p.themes && p.themes.length ? p.themes : ['uncategorised']; }
         var panel = $('.pm-panel'), info = $('.pm-info');
 
         // ---------- map ----------
@@ -261,7 +292,7 @@
                     img.onerror = function () { el.classList.add('pm-thumb-none'); }; // no picture: plain dot
                     img.src = o.links.thumb(inv);
                     el.appendChild(img);
-                    el.addEventListener('click', function (e) { e.stopPropagation(); stack = null; openPhoto(inv, false); });
+                    el.addEventListener('click', function (e) { e.stopPropagation(); stack = null; openPhoto(inv); });
                     markers.set(inv, { el: el, marker: new maplibregl.Marker({ element: el }).setLngLat(f.geometry.coordinates).addTo(m) });
                 });
                 markers.forEach(function (x, inv) { if (!seen.has(inv)) { x.marker.remove(); markers.delete(inv); } });
@@ -450,7 +481,7 @@
                     e.stopPropagation();
                     // in a grouped view the first click on a pile opens that group; the next ones open photos
                     if (gal.arrange !== 'free' && gal.focus == null) return focusGroup(groupOf(f.properties));
-                    stack = null; openPhoto(inv, false);
+                    stack = null; openPhoto(inv);
                 });
                 gcanvas.appendChild(el);
                 gal.cards.set(inv, el);
@@ -461,9 +492,15 @@
         function groupOf(p) {
             if (gal.arrange === 'decade') return p.annee == null ? 'Undated' : Math.floor(p.annee / 10) * 10;
             if (gal.arrange === 'canton') return p.canton ?? 'Elsewhere';
+            // theme: a photo can have several, a card only sits in one pile (the filtered theme, else its first)
+            if (gal.arrange === 'theme') {
+                var on = activeThemes(), ts = themesOf(p);
+                return ts.filter(function (t) { return on.has(t); })[0] ?? ts[0];
+            }
             return 'all';
         }
         function groupLabel(key) {
+            if (gal.arrange === 'theme') return key;
             if (gal.arrange === 'decade') return key === 'Undated' ? 'Undated' : key + 's';
             return key === 'Elsewhere' ? 'Border / abroad' : (CANTON_NAMES[key] || key);
         }
@@ -473,7 +510,7 @@
         function groupCenters(keys, members, a) {
             var centers = new Map();
             cell = null;
-            if (gal.arrange === 'decade') {
+            if (gal.arrange !== 'canton') {   // decade and theme: a plain grid
                 var cols = a.w < 600 ? 3 : Math.min(keys.length, 5), rows = Math.ceil(keys.length / cols);
                 keys.forEach(function (k, i) {
                     centers.set(k, { x: a.x + a.w * ((i % cols) + 0.5) / cols, y: a.y + a.h * (Math.floor(i / cols) + 0.5) / rows });
@@ -557,7 +594,7 @@
                 var inv = f.properties.inv;
                 return !gal.failed.has(inv) && (!shown || shown.has(inv));
             });
-            var top = narrow ? 210 : 130;
+            var top = narrow ? 275 : 215;   // room for the title and the two filter pills
             var members = new Map();
             items.forEach(function (f) {
                 var key = groupOf(f.properties);
@@ -581,13 +618,15 @@
 
             var keys = Array.from(members.keys());
             if (gal.arrange === 'decade') keys.sort(function (a, b) { return (a === 'Undated') - (b === 'Undated') || a - b; });
+            if (gal.arrange === 'theme') keys.sort(function (a, b) { return THEMES.indexOf(a) - THEMES.indexOf(b); });
             var centers = gal.arrange === 'free' || focused ? null : groupCenters(keys, members, area);
             if (gal.arrange === 'canton' && !focused) separate(centers, keys, members, size, area);
 
             // how far cards spread from the group centre, per card: a big group in a small cell piles up instead of spilling out
             function spread(count) {
                 var s = SPREAD;
-                if (cell) s = Math.min(s, Math.min(cell.w / 2, cell.h / 2 / 0.72) / (Math.sqrt(count + 0.5) * size));
+                // the cards themselves stick out half a card (and the label ~20px) beyond the spiral
+                if (cell) s = Math.max(0.02, Math.min(s, Math.min(cell.w / 2 - size * 0.5, (cell.h / 2 - size * 0.4 - 20) / 0.72) / (Math.sqrt(count + 0.5) * size)));
                 return s;
             }
 
@@ -642,7 +681,11 @@
                 var label = document.createElement(focused ? 'span' : 'button');
                 label.className = 'pm-glabel';
                 if (!focused) { label.type = 'button'; label.addEventListener('click', function (e) { e.stopPropagation(); focusGroup(key); }); }
-                label.textContent = groupLabel(key) + ' · ' + n;
+                label.appendChild(document.createTextNode(groupLabel(key)));
+                var count = document.createElement('span');   // the count is its own badge, apart from the title
+                count.className = 'pm-gcount';
+                count.textContent = n;
+                label.appendChild(count);
                 label.style.left = at.x + 'px';
                 label.style.top = Math.max(20, at.y - 16) + 'px';
                 gcanvas.appendChild(label);
@@ -682,9 +725,17 @@
             $('.pm-year-start').textContent = from;
             $('.pm-year-end').textContent = to;
 
+            var on = activeThemes();
+            var themeOk = function (p) { return !themeBoxes.length || themesOf(p).some(function (t) { return on.has(t); }); };
+            if (themeBox) {
+                $('.pm-themes summary').textContent = on.size === THEMES.length ? 'All themes'
+                    : on.size === 1 ? Array.from(on)[0] : on.size + ' of ' + THEMES.length + ' themes';
+            }
+
             // single source of truth: the list of visible `inv` feeds both the map filter and the counter
             visible = photos.filter(function (f) {
                 var y = f.properties.annee;
+                if (!themeOk(f.properties)) return false;
                 return y == null ? undatedBox.checked : (y >= from && y <= to);
             }).map(function (f) { return f.properties.inv; });
 
@@ -707,18 +758,14 @@
             highlight();
         }
 
-        function openPhoto(inv, fromStack) {
+        function openPhoto(inv) {
             selected = inv;
             highlight();
-            showInfo(byInv.get(inv), fromStack);
+            showInfo(byInv.get(inv));
         }
 
         panel.addEventListener('click', function (e) {
-            var btn = e.target.closest('button');
-            if (!btn) return;
-            if (btn.classList.contains('pm-close')) closePanel();
-            else if (btn.classList.contains('pm-back')) { selected = null; highlight(); showStack(); }
-            else if (btn.dataset.inv) openPhoto(+btn.dataset.inv, true);
+            if (e.target.closest('.pm-close')) closePanel();
         });
 
         // ---------- panel ----------
@@ -729,26 +776,44 @@
             return t;
         }
 
+        function chips(p) {
+            return (p.themes || []).map(function (t) { return '<span class="pm-chip">' + esc(t) + '</span>'; }).join('');
+        }
+
+        // several photos on one spot: show all of them at once, oldest first, no extra click
         function showStack() {
             highlight();
-            var html = '<h3 class="pm-h3">' + stack.length + ' photos at this spot</h3>';
-            stack.forEach(function (inv) {
-                var p = byInv.get(inv);
-                html += '<button type="button" class="pm-item" data-inv="' + inv + '">' + esc(p.titre ?? 'Untitled') +
-                    '<br><small>' + esc(p.date_texte ?? (p.annee ?? 'date unknown')) + '</small></button>';
+            var list = stack.map(function (inv) { return byInv.get(inv); }).sort(function (a, b) {
+                return (a.annee ?? 9999) - (b.annee ?? 9999) || a.inv - b.inv;
+            });
+            var place = list[0].lieu_represente || list[0].lieu_prise_de_vue;   // same coordinate for all of them
+            var html = '<h3 class="pm-h3">' + list.length + ' photos at this spot</h3>';
+            if (place && place.nom) html += '<div class="pm-spot">' + esc(place.nom) + '</div>';
+            list.forEach(function (p) {
+                html += '<article class="pm-entry">' +
+                    '<div class="pm-image"><span class="pm-loading">Loading image…</span></div>' +
+                    '<div class="pm-entry-head"><strong>' + esc(p.titre ?? 'Untitled') + '</strong>' +
+                      '<span class="pm-date">' + esc(p.date_texte ?? (p.annee ?? 'date unknown')) + '</span></div>' +
+                    (p.description ? '<div class="pm-desc">' + esc(p.description) + '</div>' : '') +
+                    '<div class="pm-chips">' + chips(p) + '</div>' +
+                    '<a href="' + esc(o.links.page(p.inv)) + '" target="_blank" rel="noopener">View on Memobase ↗</a>' +
+                  '</article>';
             });
             info.innerHTML = html;
             panel.classList.add('pm-open');
+            panel.scrollTop = 0;
+            var boxes = info.querySelectorAll('.pm-image');
+            list.forEach(function (p, i) { loadImage(p.inv, boxes[i]); });
         }
 
-        function showInfo(p, fromStack) {
+        function showInfo(p) {
             var rows = [
                 ['Description', esc(p.description ?? '')],
+                ['Theme', (p.themes || []).map(esc).join(', ')],
                 ['Date', esc(p.date_texte ?? (p.annee ? String(p.annee) : 'unknown'))],
                 ['Place shown', placeText(p.lieu_represente)]
             ];
-            var html = fromStack && stack ? '<button type="button" class="pm-back">← Other photos here</button>' : '';
-            html += '<h3 class="pm-h3">' + esc(p.titre ?? 'Untitled') + '</h3>';
+            var html = '<h3 class="pm-h3">' + esc(p.titre ?? 'Untitled') + '</h3>';
             html += '<div class="pm-image"><span class="pm-loading">Loading image…</span></div>';
             html += '<a href="' + esc(o.links.page(p.inv)) + '" target="_blank" rel="noopener">View on Memobase ↗</a>';
             html += '<table class="pm-table">';
@@ -766,7 +831,7 @@
             var img = new Image();
             img.alt = 'Photo ' + inv;
             // the box is replaced when another photo is clicked meanwhile: ignore late answers
-            var isCurrent = function () { return info.querySelector('.pm-image') === box; };
+            var isCurrent = function () { return info.contains(box); };
             img.onload = function () {
                 if (!isCurrent()) return;
                 var a = document.createElement('a');

@@ -47,6 +47,28 @@
   user-select: none;
 }
 .pm-pill input { accent-color: #fff; margin: 0; }
+/* theme filter: pill that opens a list of checkboxes */
+.pm-themes { position: relative; }
+.pm-themes summary {
+  list-style: none; padding-right: 40px;   /* room for the arrow */
+  background: #000 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 16px center;
+}
+.pm-themes summary::-webkit-details-marker { display: none; }
+.pm-themes summary:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
+.pm-themelist {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1100;
+  width: max-content; min-width: 240px; padding: 8px;
+  border-radius: 14px; background: #fff; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+.pm-themeopt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.pm-themeopt:hover { background: #f0efea; }
+.pm-themeopt input { accent-color: #000; margin: 0; }
+.pm-themen { margin-left: auto; padding-left: 12px; color: #777; font-size: 12px; }
+.pm-themetoggle {
+  display: block; width: 100%; margin-bottom: 4px; padding: 6px 8px;
+  border: 0; border-bottom: 1px solid #ddd; background: none; text-align: left;
+  font: inherit; font-size: 12px; font-weight: 600; color: #555; cursor: pointer;
+}
 
 .pm-legend {
   margin-top: 12px;
@@ -142,16 +164,15 @@
 .pm-table td.pm-label { width: 110px; padding-right: 8px; font-weight: 700; }
 .pm-coord { font-size: 11px; color: #777; }
 .pm-root a { color: inherit; text-decoration: underline; }
-.pm-back, .pm-item {
-  display: block; width: 100%;
-  margin: 0 0 6px; padding: 8px 10px;
-  border: 1px solid #ccc; border-radius: 8px;
-  background: #fff; color: inherit;
-  font: inherit; text-align: left; cursor: pointer;
-}
-.pm-back { border: 0; padding: 0 0 10px; font-weight: 600; }
-.pm-item:hover { background: #f2f2f2; }
-.pm-item small { color: #666; }
+/* several photos on one spot: one entry each, stacked in the panel */
+.pm-spot { margin: -6px 24px 12px 0; font-size: 13px; color: #666; }
+.pm-entry { padding: 14px 0; border-top: 1px solid #ddd; }
+.pm-entry-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 6px; }
+.pm-date { flex: none; font-size: 12px; color: #666; }
+.pm-desc { margin-top: 2px; font-size: 13px; }
+.pm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.pm-chip { padding: 2px 9px; border-radius: 999px; background: #000; color: #fff; font-size: 11px; font-weight: 600; }
+.pm-entry a { font-size: 13px; }
 
 /* ---------- mentions ---------- */
 .pm-credit {
@@ -277,8 +298,14 @@
   font-size: 13px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap;
   z-index: 1001;
 }
+.pm-gcount {
+  display: inline-block; margin-left: 8px; padding: 0 7px;
+  border-radius: 999px; background: #000; color: #fff;
+  font-size: 11px; letter-spacing: 0; line-height: 18px;
+}
 button.pm-glabel { cursor: pointer; }
 button.pm-glabel:hover { background: #000; color: #fff; }
+button.pm-glabel:hover .pm-gcount { background: #fff; color: #000; }
 span.pm-glabel { pointer-events: none; }
 @keyframes pm-float {
   from { translate: 0 -4px; rotate: -1deg; }
