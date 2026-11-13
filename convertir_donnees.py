@@ -1,17 +1,45 @@
 """Convertit Data_mappe.xlsx en data_photos.js (GeoJSON) pour la carte Leaflet.
 Usage : python convertir_donnees.py Data_mappe.xlsx
+
+Les thèmes et mots-clés des descriptions viennent des colonnes ajoutées au classeur
+par consolidate_descriptions.py ; lancer ce script d'abord sur le même classeur.
 """
 import sys, re, json, datetime
+from math import asin, atan, atan2, cos, exp, hypot, log, pi, radians, degrees, sin, sqrt, tan
 import pandas as pd
 
+# Ellipsoïde de Bessel 1841 et projection suisse (origine : ancien observatoire de Berne)
+BESSEL_A, BESSEL_E2 = 6377397.155, 0.006674372230614
+BESSEL_E = sqrt(BESSEL_E2)
+PHI0, LAMBDA0 = radians(46 + 57/60 + 8.66/3600), radians(7 + 26/60 + 22.5/3600)
+SPHERE_R = BESSEL_A * sqrt(1 - BESSEL_E2) / (1 - BESSEL_E2 * sin(PHI0)**2)
+ALPHA = sqrt(1 + BESSEL_E2 / (1 - BESSEL_E2) * cos(PHI0)**4)
+B0 = asin(sin(PHI0) / ALPHA)
+K = (log(tan(pi/4 + B0/2)) - ALPHA * log(tan(pi/4 + PHI0/2))
+     + ALPHA * BESSEL_E / 2 * log((1 + BESSEL_E * sin(PHI0)) / (1 - BESSEL_E * sin(PHI0))))
+# CH1903+ -> WGS84 : translation du centre de l'ellipsoïde (m), puis ellipsoïde WGS84
+DX, DY, DZ = 674.374, 15.056, 405.346
+WGS_A, WGS_E2 = 6378137.0, 0.00669437999014
+
 def lv95_vers_wgs84(e, n):
-    """Formule approchée swisstopo (précision ~1 m), sans pyproj."""
-    y = (e - 2600000) / 1e6
-    x = (n - 1200000) / 1e6
-    lon = (2.6779094 + 4.728982*y + 0.791484*y*x + 0.1306*y*x*x - 0.0436*y**3) * 100/36
-    lat = (16.9023892 + 3.238272*x - 0.270978*y*y - 0.002528*x*x
-           - 0.0447*y*y*x - 0.0140*x**3) * 100/36
-    return round(lon, 6), round(lat, 6)
+    """Formules rigoureuses swisstopo, sans pyproj : mêmes résultats que EPSG:2056 -> EPSG:4326."""
+    # projection cylindrique oblique inverse : plan -> sphère -> ellipsoïde de Bessel
+    l_, b_ = (e - 2600000) / SPHERE_R, 2 * (atan(exp((n - 1200000) / SPHERE_R)) - pi/4)
+    b = asin(cos(B0) * sin(b_) + sin(B0) * cos(b_) * cos(l_))
+    l = atan2(sin(l_), cos(B0) * cos(l_) - sin(B0) * tan(b_))
+    lam, phi = LAMBDA0 + l / ALPHA, b
+    for _ in range(10):
+        s = (log(tan(pi/4 + b/2)) - K) / ALPHA + BESSEL_E * log(tan(pi/4 + asin(BESSEL_E * sin(phi)) / 2))
+        phi = 2 * atan(exp(s)) - pi/2
+    # changement de datum par les coordonnées géocentriques (altitude 0)
+    rn = BESSEL_A / sqrt(1 - BESSEL_E2 * sin(phi)**2)
+    x, y, z = rn * cos(phi) * cos(lam) + DX, rn * cos(phi) * sin(lam) + DY, rn * (1 - BESSEL_E2) * sin(phi) + DZ
+    p = hypot(x, y)
+    lat = atan2(z, p * (1 - WGS_E2))
+    for _ in range(10):
+        rn = WGS_A / sqrt(1 - WGS_E2 * sin(lat)**2)
+        lat = atan2(z + WGS_E2 * rn * sin(lat), p)
+    return round(degrees(atan2(y, x)), 6), round(degrees(lat), 6)
 
 def premier_nombre(v):
     """'2593463; ' ou '2603726; 2601392' -> 2593463.0 (première valeur)."""
@@ -48,11 +76,24 @@ def texte(v):
         return None
     return str(v).strip()
 
+def liste(v):
+    """'Church or chapel; School' -> ['Church or chapel', 'School'] ; cellule vide ou colonne absente -> []."""
+    if pd.isna(v):
+        return []
+    return [p.strip() for p in str(v).split(';') if p.strip()]
+
 df = pd.read_excel(sys.argv[1])
 
 # 7 photos apparaissent deux fois (une ligne géolocalisée, une vide) : on garde la plus complète
 df['_rempli'] = df.notna().sum(axis=1)
 df = df.sort_values('_rempli', ascending=False).drop_duplicates('NAME').sort_values('Inv')
+
+# thèmes (en anglais) et mots-clés d'origine des descriptions, écrits dans le classeur par consolidate_descriptions.py
+COL_THEMES, COL_MOTS_CLES = 'Beschreibung-consolidated', 'Beschreibung-consolidated-keywords'
+manquantes = [c for c in (COL_THEMES, COL_MOTS_CLES) if c not in df.columns]
+if manquantes:
+    print(f"Attention : colonnes absentes du classeur ({', '.join(manquantes)}) : themes et mots_cles seront vides.")
+    print(f"Lancer d'abord : python consolidate_descriptions.py {sys.argv[1]}")
 
 def lieu(r, prefixe):
     """Nom + coordonnées LV95/WGS84 d'un lieu (représenté ou prise de vue), ou None."""
@@ -86,6 +127,8 @@ for _, r in df.iterrows():
             'numero': str(r['nummer']),
             'titre': texte(r['Name2']),
             'description': texte(r['Beschreibung']),
+            'themes': liste(r.get(COL_THEMES)),
+            'mots_cles': liste(r.get(COL_MOTS_CLES)),
             'annee': annee(jahr),
             'date_texte': jahr.strftime('%B %Y') if isinstance(jahr, (datetime.datetime, pd.Timestamp)) else texte(jahr),
             'auteur': (texte(r['Tags']) or '').replace('Author: ', '') or None,
@@ -108,3 +151,5 @@ print(f"{len(features)} photos, {len(geo)} géolocalisées, années {min(ans)}�
 print("prise de vue:", sum(f['properties']['type_lieu']=='prise_de_vue' for f in geo),
       "| représenté:", sum(f['properties']['type_lieu']=='represente' for f in geo),
       "| géoloc. sans année:", sum(f['properties']['annee'] is None for f in geo))
+print("avec thèmes:", sum(bool(f['properties']['themes']) for f in features),
+      "| dont uncategorised:", sum(f['properties']['themes'] == ['uncategorised'] for f in features))
