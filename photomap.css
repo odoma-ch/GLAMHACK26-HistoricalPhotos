@@ -1,0 +1,173 @@
+/* PhotoMap: every selector is prefixed .pm- (no global body/h1/a rules)
+   so the component can be embedded in a third-party page (e.g. the Memobase Drupal theme).
+   The font is inherited from the host page. */
+
+.pm-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 14px;
+  color: #111;
+  container-type: inline-size; /* "small screen" rules follow the component's size, not the window's */
+}
+.pm-root *, .pm-root *::before, .pm-root *::after { box-sizing: border-box; }
+.pm-map { position: absolute; inset: 0; }
+
+/* ---------- titre + filtres (haut gauche) ---------- */
+.pm-top {
+  position: absolute;
+  top: 16px; left: 20px;
+  max-width: calc(100% - 80px);
+  pointer-events: none;            /* the map stays clickable around the text */
+}
+.pm-top > * { pointer-events: auto; }
+.pm-title {
+  font-size: clamp(22px, 4.5cqw, 42px);
+  font-weight: 800;
+  line-height: 1.1;
+  text-shadow: 0 0 6px #fff, 0 0 14px #fff;
+}
+.pm-subtitle {
+  margin-top: 4px;
+  font-size: clamp(13px, 2cqw, 18px);
+  text-shadow: 0 0 6px #fff, 0 0 12px #fff;
+}
+.pm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.pm-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: #000; color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.pm-pill input { accent-color: #fff; margin: 0; }
+.pm-count { font-weight: 600; text-shadow: 0 0 6px #fff, 0 0 12px #fff; }
+
+.pm-legend {
+  margin-top: 12px;
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.pm-dot {
+  display: inline-block; width: 11px; height: 11px;
+  margin-right: 7px; vertical-align: -1px;
+  border: 1.5px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- year slider (bottom) ---------- */
+.pm-timeline {
+  position: absolute;
+  left: 50%; bottom: 34px;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 32px));
+  display: flex; align-items: center; gap: 10px;
+}
+.pm-year {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #000; color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pm-double { position: relative; flex: 1; height: 28px; }
+.pm-double::before {                 /* one rail shared by both handles */
+  content: "";
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 2px; margin-top: -1px;
+  background: #000;
+}
+/* two sliders stacked on top of each other; only the handles take pointer events */
+.pm-double input[type=range] {
+  position: absolute; left: 0; top: 0;
+  width: 100%; height: 28px; margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none; appearance: none;
+}
+.pm-double input[type=range]::-webkit-slider-runnable-track { background: none; }
+.pm-double input[type=range]::-moz-range-track { background: none; }
+.pm-double input[type=range]::-webkit-slider-thumb {
+  pointer-events: auto; -webkit-appearance: none;
+  width: 22px; height: 22px;
+  border: 4px solid #000; border-radius: 50%;
+  background: #fff; cursor: pointer;
+}
+.pm-double input[type=range]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px; height: 14px;
+  border: 4px solid #000; border-radius: 50%;
+  background: #fff; cursor: pointer;
+}
+
+/* ---------- info panel (right) ---------- */
+.pm-panel {
+  position: absolute;
+  top: 100px; right: 16px; bottom: 84px;
+  width: 340px; max-width: calc(100% - 32px);
+  padding: 18px;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  transform: translateX(120%);
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0.2s;
+}
+.pm-panel.pm-open { transform: none; visibility: visible; }
+.pm-close {
+  position: absolute; top: 8px; right: 10px;
+  border: 0; background: none;
+  font-size: 22px; line-height: 1; cursor: pointer; color: #111;
+}
+.pm-h3 { margin: 0 24px 12px 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
+.pm-image {
+  margin-bottom: 8px; min-height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: #eee;
+}
+.pm-image img { display: block; max-width: 100%; }
+.pm-loading { padding: 12px; font-size: 12px; color: #666; text-align: center; }
+.pm-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; }
+.pm-table td { padding: 4px 0; vertical-align: top; }
+.pm-table td.pm-label { width: 110px; padding-right: 8px; font-weight: 700; }
+.pm-coord { font-size: 11px; color: #777; }
+.pm-root a { color: inherit; text-decoration: underline; }
+.pm-back, .pm-item {
+  display: block; width: 100%;
+  margin: 0 0 6px; padding: 8px 10px;
+  border: 1px solid #ccc; border-radius: 8px;
+  background: #fff; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.pm-back { border: 0; padding: 0 0 10px; font-weight: 600; }
+.pm-item:hover { background: #f2f2f2; }
+.pm-item small { color: #666; }
+
+/* ---------- mentions ---------- */
+.pm-credit {
+  position: absolute; left: 20px; bottom: 6px;
+  max-width: calc(100% - 160px);
+  font-size: 10px; color: #333;
+  text-shadow: 0 0 4px #fff, 0 0 8px #fff;
+}
+
+/* ---------- small component: the panel becomes a bottom sheet ---------- */
+@container (max-width: 700px) {
+  .pm-top { left: 12px; }
+  .pm-panel {
+    top: auto; left: 8px; right: 8px; bottom: 84px;
+    width: auto; max-width: none; max-height: 45%;
+    transform: translateY(130%);
+  }
+  .pm-legend { display: none; }
+}
