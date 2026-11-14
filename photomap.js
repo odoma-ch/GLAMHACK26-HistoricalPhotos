@@ -12,12 +12,13 @@
 
     var DEFAULTS = {
         title: 'Historical photos',
-        subtitle: 'Click a photo to see the details',
+        subtitle: '',
         styleUrl: 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.lightbasemap.vt/style.json',
         bounds: [[5.95, 45.8], [10.5, 47.82]],           // [south-west, north-east] as [lon, lat]
-        // keys match the `type_lieu` values in the data: prise_de_vue = where the photo was taken,
-        // represente = place shown in the photo (used when the shooting place is unknown)
-        colors: { prise_de_vue: '#e4572e', represente: '#0382d1' },
+        // one accent colour for circles and rings; the place type (`type_lieu`) is shown by the ring style:
+        // prise_de_vue = where the photo was taken (dashed ring),
+        // represente = place shown in the photo, shooting place unknown (solid ring)
+        color: '#89CFF0',
         links: {
             // Memobase only exists in fr/de/it (the /en/ path returns 404)
             page: function (inv) { return 'https://memobase.ch/fr/object/' + memobaseId(inv); },
@@ -75,7 +76,6 @@
 
     function mergeOptions(opts) {
         var o = Object.assign({}, DEFAULTS, opts);
-        o.colors = Object.assign({}, DEFAULTS.colors, opts.colors);
         o.links = Object.assign({}, DEFAULTS.links, opts.links);
         o.timeTravel = Object.assign({}, DEFAULTS.timeTravel, opts.timeTravel);
         return o;
@@ -124,16 +124,17 @@
               '</div>' +
               '<div class="pm-top">' +
                 '<div class="pm-title">' + esc(o.title) + '</div>' +
-                '<div class="pm-subtitle">' + esc(o.subtitle) + '</div>' +
+                (o.subtitle ? '<div class="pm-subtitle">' + esc(o.subtitle) + '</div>' : '') +
+                // one chip row: theme tabs, then the undated toggle
                 '<div class="pm-filters">' +
-                  '<label class="pm-pill"><input type="checkbox" class="pm-undated" checked> undated photos</label>' +
-                  (THEMES.length ? '<details class="pm-themes"><summary class="pm-pill"></summary><div class="pm-themelist"></div></details>' : '') +
-                '</div>' +
-                '<div class="pm-legend">' +
-                  '<div><span class="pm-dot" style="background:' + esc(o.colors.prise_de_vue) + '"></span>Place where the photo was taken</div>' +
-                  '<div><span class="pm-dot" style="background:' + esc(o.colors.represente) + '"></span>Place shown (shooting place unknown)</div>' +
+                  (THEMES.length ? '<div class="pm-themes" role="tablist" aria-label="Filter by theme"></div>' : '') +
+                  '<label class="pm-pill"><input type="checkbox" class="pm-undated" checked> Undated photos</label>' +
                 '</div>' +
                 '<div class="pm-step pm-step-left">' + stepperHtml('Left · map of') + '</div>' +
+              '</div>' +
+              '<div class="pm-legend">' +
+                '<button type="button" class="pm-legend-item" data-type="prise_de_vue" aria-pressed="true"><span class="pm-dot pm-dot-taken"></span>Place where the photo was taken</button>' +
+                '<button type="button" class="pm-legend-item" data-type="represente" aria-pressed="true"><span class="pm-dot"></span>Place shown (shooting place unknown)</button>' +
               '</div>' +
               '<div class="pm-step pm-step-right">' + stepperHtml('Right · map of') + '</div>' +
               '<div class="pm-timeline">' +
@@ -152,30 +153,60 @@
 
         var $ = function (sel) { return container.querySelector(sel); };
         var root = $('.pm-root');
+        root.style.setProperty('--pm-accent', o.color);   // rings and legend swatches follow the `color` option
         var sliderStart = $('.pm-slider-start'), sliderEnd = $('.pm-slider-end');
         var undatedBox = $('.pm-undated');
-        // theme filter: a drop-down list of checkboxes (all ticked = no filtering)
+        // theme filter: one tab per theme (+ "All"); several can be on, `themeSel` empty = all
+        var THEME_ICONS = {   // 24x24 stroke paths; unknown themes fall back to a dot
+            'Church or chapel': 'M12 2v5M9.5 4.5h5M5 21V12l7-5 7 5v9M10 21v-5h4v5',
+            'Other building': 'M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2M2 21h20',
+            'Survey signal or marker': 'M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10zM12 9.5v3',
+            'School': 'M2 9l10-5 10 5-10 5zM6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5',
+            'Fieldwork and instruments': 'M12 3v8M8.5 5h7M12 11l-6 10M12 11l6 10M12 11v10',
+            'Summit and terrain': 'M2 20l7-13 4 7 3-4 6 10z',
+            'People': 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14.5c2 .8 3.5 2.7 3.5 5.5',
+            'Castle or ruin': 'M4 21V7h3v3h3V7h4v3h3V7h3v14zM10 21v-5h4v5',
+            'uncategorised': 'M9 9a3 3 0 1 1 4.5 2.6c-1 .6-1.5 1.2-1.5 2.4M12 18h.01'
+        };
+        var themeSel = new Set();
         var themeBox = $('.pm-themes');
-        var themeBoxes = [];
         if (themeBox) {
-            var list = $('.pm-themelist');
-            list.innerHTML = '<button type="button" class="pm-themetoggle">Select all / none</button>' + THEMES.map(function (t) {
-                return '<label class="pm-themeopt"><input type="checkbox" value="' + esc(t) + '" checked> ' + esc(t) +
-                    ' <span class="pm-themen">' + themeCount[t] + '</span></label>';
-            }).join('');
-            themeBoxes = Array.from(list.querySelectorAll('input'));
-            list.addEventListener('change', function () { filterDates(); });
-            list.querySelector('.pm-themetoggle').addEventListener('click', function () {
-                var all = themeBoxes.every(function (b) { return b.checked; });
-                themeBoxes.forEach(function (b) { b.checked = !all; });
+            var tab = function (key, label, n, icon) {
+                return '<button type="button" role="tab" class="pm-themetab" data-theme="' + esc(key) + '" title="' + esc(label) + '">' +
+                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + icon + '"/></svg>' +
+                    '<span>' + esc(label) + '</span><span class="pm-themen">' + n + '</span></button>';
+            };
+            themeBox.innerHTML = tab('', 'All', photos.length, 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z') +
+                THEMES.map(function (t) { return tab(t, t, themeCount[t], THEME_ICONS[t] || 'M12 12h.01'); }).join('');
+            themeBox.addEventListener('click', function (e) {
+                var btn = e.target.closest('.pm-themetab');
+                if (!btn) return;
+                var t = btn.dataset.theme;
+                if (t) { if (!themeSel.delete(t)) themeSel.add(t); }
+                else if (themeSel.size) themeSel.clear();   // "All" resets the selection...
+                else {                                       // ...and with nothing selected it folds / unfolds the list
+                    btn.setAttribute('aria-expanded', !themeBox.classList.toggle('pm-themes-closed'));
+                    return;
+                }
+                Array.from(themeBox.children).forEach(function (b) {
+                    b.setAttribute('aria-selected', b.dataset.theme ? themeSel.has(b.dataset.theme) : !themeSel.size);
+                });
                 filterDates();
             });
-            // click anywhere else closes the list
-            document.addEventListener('click', function (e) { if (!themeBox.contains(e.target)) themeBox.open = false; });
+            themeBox.firstChild.setAttribute('aria-selected', 'true');
+            themeBox.firstChild.setAttribute('aria-expanded', 'true');
         }
-        function activeThemes() {
-            return new Set(themeBoxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; }));
-        }
+        // legend entries double as a filter on type_lieu (a type switched off is hidden)
+        var typeOff = new Set();
+        container.querySelector('.pm-legend').addEventListener('click', function (e) {
+            var btn = e.target.closest('.pm-legend-item');
+            if (!btn) return;
+            var t = btn.dataset.type;
+            if (!typeOff.delete(t)) typeOff.add(t);
+            btn.setAttribute('aria-pressed', !typeOff.has(t));
+            filterDates();
+        });
+        function activeThemes() { return new Set(themeSel.size ? themeSel : THEMES); }
         function themesOf(p) { return p.themes && p.themes.length ? p.themes : ['uncategorised']; }
         var panel = $('.pm-panel'), info = $('.pm-info');
 
@@ -209,6 +240,40 @@
         // maps that currently have the photo layers
         function liveMaps() { return [ready && map, histReady && histMap].filter(Boolean); }
 
+        // ---------- basemap look ----------
+        // Turn the swisstopo basemap into a pale, near-monochrome grey backdrop (faint relief, thin borders,
+        // no roads, small labels) so the accent-coloured photo markers are the only saturated colour.
+        // Works on the swisstopo layer names; layers another style does not have are simply not touched.
+        var PAPER = '#f3f3f2', WATER = '#e1e3e4', BORDER = '#a3a3a3', LABEL = '#5f5f5f';
+        var HIDE_LAYERS = /scree|contour|pattern|hillshade_yellow|hazard|hachure|park|landcover|landuse|aeroway|construct|building_ln|poi_|peaks|spot_elevation|aerodrome|area_name|road_number|transportation_label/;
+        function stylizeBasemap(m) {
+            m.getStyle().layers.forEach(function (l) {
+                var id = l.id, set = function (prop, val) { m.setPaintProperty(id, prop, val); };
+                if (l.type === 'background') set('background-color', PAPER);
+                else if (l['source-layer'] === 'transportation' || HIDE_LAYERS.test(id)) m.setLayoutProperty(id, 'visibility', 'none');
+                else if (id === 'hillshade_grey') {   // faint relief: light grey shadows only
+                    set('fill-color', '#7d7d7d');
+                    set('fill-opacity', ['interpolate', ['linear'], ['get', 'luminosity'], -15, 0.13, -1, 0.01]);
+                } else if (l.type === 'symbol') {
+                    if (!l.paint || l.paint['text-color'] === undefined) return;
+                    set('text-color', /water/.test(id) ? '#8a9094' : LABEL);
+                    set('text-halo-color', 'rgba(243,243,242,0.9)');
+                    set('text-halo-width', 1.5);
+                    set('text-halo-blur', 0.5);
+                    if (l.layout && l.layout['icon-image'] !== undefined) set('icon-opacity', 0);   // no town dots
+                    if (/^place_/.test(id)) m.setLayoutProperty(id, 'text-size', id === 'place_city'
+                        ? ['interpolate', ['linear'], ['zoom'], 6, 10, 12, 14]
+                        : ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 12]);
+                } else if (/boundary/.test(id)) {
+                    set('line-color', BORDER);
+                    set('line-blur', 0);
+                    set('line-width', ['match', ['get', 'admin_level'], 2, 1.2, 0.6]);
+                } else if (/^water/.test(id)) set(l.type === 'fill' ? 'fill-color' : 'line-color', WATER);
+                else if (l.type === 'fill') set('fill-color', '#e6e6e5');     // buildings
+                else if (l.type === 'line') set('line-color', '#dadada');    // building outlines and the like
+            });
+        }
+
         // ---------- clustering ----------
         // Photos that are close on screen merge into a numbered circle (size grows with the count).
         // A photo that is alone shows a small preview picture instead of a dot.
@@ -233,22 +298,41 @@
                 type: 'geojson', data: { type: 'FeatureCollection', features: visibleFeatures() },
                 cluster: true, clusterRadius: 50, clusterMaxZoom: MAX_ZOOM, maxzoom: MAX_ZOOM + 1
             });
+            m.addLayer({   // soft halo under the number circles
+                id: 'pm-cluster-halo', type: 'circle', source: 'pm-photos',
+                filter: ['has', 'point_count'],
+                paint: {
+                    'circle-color': '#000',
+                    'circle-opacity': 0.14,
+                    'circle-blur': 0.7,
+                    'circle-radius': ['+', 22, ['*', 3, ['sqrt', ['get', 'point_count']]]]
+                }
+            });
+            m.addLayer({   // soft accent glow around every circle
+                id: 'pm-cluster-glow', type: 'circle', source: 'pm-photos',
+                filter: ['has', 'point_count'],
+                paint: {
+                    'circle-color': o.color,
+                    'circle-opacity': 0.4,
+                    'circle-blur': 0.9,
+                    'circle-radius': ['+', 26, ['*', 4, ['sqrt', ['get', 'point_count']]]]
+                }
+            });
             m.addLayer({
                 id: 'pm-clusters', type: 'circle', source: 'pm-photos',
                 filter: ['has', 'point_count'],
                 paint: {
-                    'circle-color': o.colors.represente,
-                    'circle-opacity': 0.9,
-                    'circle-radius': ['+', 12, ['*', 3, ['sqrt', ['get', 'point_count']]]],
-                    'circle-stroke-color': '#fff',
-                    'circle-stroke-width': 2
+                    'circle-color': o.color,
+                    'circle-opacity': 0.72,
+                    'circle-blur': 0.45,   // soft edge that melts into the glow
+                    'circle-radius': ['+', 12, ['*', 3, ['sqrt', ['get', 'point_count']]]]
                 }
             });
             m.addLayer({
                 id: 'pm-cluster-count', type: 'symbol', source: 'pm-photos',
                 filter: ['has', 'point_count'],
                 layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': o.font, 'text-size': 14, 'text-allow-overlap': true },
-                paint: { 'text-color': '#fff' }
+                paint: { 'text-color': '#0d2b3e' }
             });
             m.on('mouseenter', 'pm-clusters', function () { m.getCanvas().style.cursor = 'pointer'; });
             m.on('mouseleave', 'pm-clusters', function () { m.getCanvas().style.cursor = ''; });
@@ -286,7 +370,7 @@
                     el.type = 'button';
                     el.className = 'pm-thumb';
                     el.setAttribute('aria-label', 'Photo ' + inv);
-                    el.style.borderColor = f.properties.type_lieu === 'prise_de_vue' ? o.colors.prise_de_vue : o.colors.represente;
+                    if (f.properties.type_lieu === 'prise_de_vue') el.classList.add('pm-thumb-taken');
                     var img = new Image();
                     img.alt = '';
                     img.onerror = function () { el.classList.add('pm-thumb-none'); }; // no picture: plain dot
@@ -310,9 +394,17 @@
             // historical map overlay for the right side of the swipe (hidden while it shows today's map)
             map.addSource('pm-tt', { type: 'raster', tiles: [tt.tiles(tt.maxYear)], tileSize: 256, maxzoom: 18 });
             map.addLayer({ id: 'pm-tt', type: 'raster', source: 'pm-tt', layout: { visibility: 'none' } });
+            try { stylizeBasemap(map); } catch (err) { /* another basemap style: keep it as it is */ }
             addPhotoLayers(map);
+            root.classList.add('pm-ready');   // fades the map in
             ready = true;
             filterDates();
+            // intro: start a little further out and glide in (skipped for reduced motion)
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                var z = map.getZoom();
+                map.jumpTo({ zoom: z - 1 });
+                map.easeTo({ zoom: z, duration: 2200, easing: function (t) { return 1 - Math.pow(1 - t, 3); } });
+            }
         });
 
         // ---------- swipe mode (two synced maps, the top one clipped at the divider) ----------
@@ -726,16 +818,12 @@
             $('.pm-year-end').textContent = to;
 
             var on = activeThemes();
-            var themeOk = function (p) { return !themeBoxes.length || themesOf(p).some(function (t) { return on.has(t); }); };
-            if (themeBox) {
-                $('.pm-themes summary').textContent = on.size === THEMES.length ? 'All themes'
-                    : on.size === 1 ? Array.from(on)[0] : on.size + ' of ' + THEMES.length + ' themes';
-            }
+            var themeOk = function (p) { return !themeSel.size || themesOf(p).some(function (t) { return on.has(t); }); };
 
             // single source of truth: the list of visible `inv` feeds both the map filter and the counter
             visible = photos.filter(function (f) {
                 var y = f.properties.annee;
-                if (!themeOk(f.properties)) return false;
+                if (!themeOk(f.properties) || typeOff.has(f.properties.type_lieu)) return false;
                 return y == null ? undatedBox.checked : (y >= from && y <= to);
             }).map(function (f) { return f.properties.inv; });
 

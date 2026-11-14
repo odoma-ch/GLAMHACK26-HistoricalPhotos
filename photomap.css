@@ -15,7 +15,9 @@
   container-type: inline-size; /* "small screen" rules follow the component's size, not the window's */
 }
 .pm-root *, .pm-root *::before, .pm-root *::after { box-sizing: border-box; }
-.pm-map { position: absolute; inset: 0; z-index: 0; }   /* own stacking context: map controls stay under the gallery */
+.pm-map { position: absolute; inset: 0; z-index: 0; opacity: 0; transition: opacity 1.2s ease; }
+.pm-ready .pm-map { opacity: 1; }
+.pm-map-hist { transition: none; }   /* own stacking context: map controls stay under the gallery */
 
 /* ---------- titre + filtres (haut gauche) ---------- */
 .pm-top {
@@ -36,55 +38,46 @@
   font-size: clamp(13px, 2cqw, 18px);
   text-shadow: 0 0 6px #fff, 0 0 12px #fff;
 }
-.pm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
-.pm-pill {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: #000; color: #fff;
-  font-weight: 600;
-  cursor: pointer;
+.pm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+/* one chip look for the theme tabs, the undated toggle and the legend entries */
+.pm-themetab, .pm-pill, .pm-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border: 1.5px solid #000; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8); color: #000;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);   /* frosted glass over the map */
+  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.3;
   user-select: none;
 }
-.pm-pill input { accent-color: #fff; margin: 0; }
-/* theme filter: pill that opens a list of checkboxes */
-.pm-themes { position: relative; }
-.pm-themes summary {
-  list-style: none; padding-right: 40px;   /* room for the arrow */
-  background: #000 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 16px center;
+.pm-themetab, .pm-pill, .pm-legend-item { cursor: pointer; }
+.pm-themetab:hover, .pm-pill:hover, .pm-legend-item:hover { background: #f0efea; }
+.pm-themetab[aria-selected="true"], .pm-legend-item[aria-pressed="true"], .pm-pill:has(input:checked) { background: #000; color: #fff; }
+.pm-themetab:focus-visible, .pm-legend-item:focus-visible, .pm-pill:focus-within { outline: 2px solid #000; outline-offset: 2px; }
+.pm-pill input { accent-color: #fff; margin: 0; width: 13px; height: 13px; }
+/* theme tabs: toggle several, "All" resets; they share the .pm-filters row */
+.pm-themes { display: contents; }
+/* "All" folds the theme list away; its arrow shows the state */
+.pm-themes-closed .pm-themetab:not([data-theme=""]) { display: none; }
+.pm-themetab[data-theme=""]::after {
+  content: ""; width: 6px; height: 6px; margin: 0 2px 0 4px;
+  border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+  transform: rotate(135deg);     /* points left: click to fold */
+  transition: transform 0.2s;
 }
-.pm-themes summary::-webkit-details-marker { display: none; }
-.pm-themes summary:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
-.pm-themelist {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1100;
-  width: max-content; min-width: 240px; padding: 8px;
-  border-radius: 14px; background: #fff; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
-}
-.pm-themeopt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.pm-themeopt:hover { background: #f0efea; }
-.pm-themeopt input { accent-color: #000; margin: 0; }
-.pm-themen { margin-left: auto; padding-left: 12px; color: #777; font-size: 12px; }
-.pm-themetoggle {
-  display: block; width: 100%; margin-bottom: 4px; padding: 6px 8px;
-  border: 0; border-bottom: 1px solid #ddd; background: none; text-align: left;
-  font: inherit; font-size: 12px; font-weight: 600; color: #555; cursor: pointer;
-}
+.pm-themes-closed .pm-themetab[data-theme=""]::after { transform: rotate(-45deg); }   /* points right: click to unfold */
+.pm-themetab svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pm-themen { font-size: 10px; font-weight: 500; opacity: 0.6; }
 
+/* legend: same chips; each one also toggles its place type */
 .pm-legend {
-  margin-top: 12px;
-  display: inline-block;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
-  line-height: 1.7;
+  position: absolute; left: 20px; bottom: 28px;   /* bottom left corner, above the credit line */
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
 }
-.pm-dot {
-  display: inline-block; width: 11px; height: 11px;
-  margin-right: 7px; vertical-align: -1px;
-  border: 1.5px solid #fff; border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+.pm-dot {   /* legend swatch: a ring like the photo previews on the map */
+  display: inline-block; width: 16px; height: 16px; flex: none;
+  box-sizing: border-box; border: 3px solid var(--pm-accent, #89CFF0); border-radius: 50%;
+  background: #ddd;
 }
+.pm-dot-taken { border-style: dashed; }
 
 /* ---------- year slider (bottom) ---------- */
 .pm-timeline {
@@ -139,7 +132,7 @@
   padding: 18px;
   overflow-y: auto;
   border-radius: 14px;
-  background: #fff;
+  background: radial-gradient(120% 70% at 100% 0%, color-mix(in srgb, var(--pm-accent, #89CFF0) 45%, #fff) 0%, rgba(255, 255, 255, 0) 60%), #fff;   /* accent glow in the top corner */
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
   transform: translateX(120%);
   visibility: hidden;
@@ -185,11 +178,20 @@
 /* ---------- small preview of a single photo, shown when zoomed in far (DOM marker) ---------- */
 .pm-thumb {
   width: 52px; height: 52px; padding: 0;
-  border: 3px solid #0382d1; border-radius: 50%;   /* colour set from the data (shooting / shown place) */
+  border: 3px solid var(--pm-accent, #89CFF0); border-radius: 50%;   /* dashed = shooting place, solid = shown place */
   background: #eee; overflow: hidden; cursor: pointer;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 24px 8px color-mix(in srgb, var(--pm-accent, #89CFF0) 50%, transparent),
+              0 4px 12px rgba(0, 0, 0, 0.3);   /* soft accent glow */
+  animation: pm-fade 0.45s ease-out;                            /* not transform: MapLibre positions markers with it */
+  transition: box-shadow 0.2s;
 }
-.pm-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pm-thumb-taken { border-style: dashed; }
+.pm-thumb:hover { box-shadow: 0 0 30px 12px color-mix(in srgb, var(--pm-accent, #89CFF0) 65%, transparent),
+              0 6px 18px rgba(0, 0, 0, 0.45); }
+.pm-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.35s; }
+.pm-thumb:hover img { transform: scale(1.15); }
+@keyframes pm-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pm-thumb, .pm-thumb img { animation: none; transition: none; } }
 .pm-thumb-sel { outline: 3px solid #000; outline-offset: 1px; }
 .pm-thumb-none { width: 18px; height: 18px; border-radius: 50%; background: #fff; }  /* image missing: plain dot */
 .pm-thumb-none img { display: none; }
@@ -337,6 +339,9 @@ span.pm-glabel { pointer-events: none; }
 }
 .pm-arrange button[aria-pressed="true"] { background: #000; color: #fff; }
 
+/* legend would hit the timeline's year pill: lift it above the slider */
+@container (max-width: 1240px) { .pm-legend { bottom: 84px; } }
+
 /* ---------- small component: the panel becomes a bottom sheet ---------- */
 @container (max-width: 700px) {
   .pm-top { left: 12px; top: 64px; max-width: calc(100% - 80px); }
@@ -353,3 +358,12 @@ span.pm-glabel { pointer-events: none; }
   /* zoom buttons would sit on the timeline here: lift them above it */
   .pm-root .maplibregl-ctrl-bottom-right { bottom: 70px; }
 }
+
+/* ---------- zoom buttons: bare thin + / - without a box ---------- */
+.pm-root .maplibregl-ctrl-group { background: none; box-shadow: none; border-radius: 0; }
+.pm-root .maplibregl-ctrl-group button { width: 44px; height: 44px; background-color: transparent; }
+.pm-root .maplibregl-ctrl-group button + button { border-top: 0; }
+.pm-root .maplibregl-ctrl-group button:hover { background-color: transparent; }
+.pm-root .maplibregl-ctrl-icon { filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 6px #fff); background-size: 44px 44px; }
+.pm-root .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cpath d='M8 22h28M22 8v28' stroke='%23000' stroke-width='2.5'/%3E%3C/svg%3E"); }
+.pm-root .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cpath d='M8 22h28' stroke='%23000' stroke-width='2.5'/%3E%3C/svg%3E"); }
