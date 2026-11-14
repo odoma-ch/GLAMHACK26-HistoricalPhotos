@@ -324,6 +324,7 @@ span.pm-glabel { pointer-events: none; }
   background: #fff; color: #111; font: inherit; font-weight: 600; cursor: pointer;
 }
 .pm-gfocus .pm-gback { display: block; }
+.pm-gback, .pm-arrange { z-index: 1002; }   /* above the cards (inline z-index up to ~1000) and group labels */
 /* arrangement buttons (top right, where the swipe year picker sits) */
 .pm-arrange {
   position: absolute; top: 16px; right: 20px;
@@ -352,7 +353,8 @@ span.pm-glabel { pointer-events: none; }
     transform: translateY(130%);
   }
   .pm-step-right { right: 12px; }
-  .pm-gback { top: auto; bottom: 126px; left: 50%; right: auto; transform: translateX(-50%); }
+  .pm-gback { top: 16px; right: 12px; }  /* the bottom is taken by the switcher and the sheet */
+  .pm-gallery-on .pm-panel { bottom: 142px; max-height: 40%; }  /* sheet stays above the arrangement switcher */
   .pm-arrange { top: auto; bottom: 78px; left: 50%; right: auto; transform: translateX(-50%); }  /* no room at the top */
   .pm-legend { display: none; }
   /* zoom buttons would sit on the timeline here: lift them above it */
